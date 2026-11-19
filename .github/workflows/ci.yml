@@ -184,6 +184,13 @@ jobs:
       - name: Typecheck CI tooling
         run: pnpm typecheck:ci
 
+      # Issue 414: Flaky test quarantine audit.
+      # Scans the test suites to ensure no @quarantine tags have reached their
+      # time-boxed expiration date. If a quarantined test's deadline has elapsed,
+      # this step fails CI so the test must either be fixed or explicitly re-scoped.
+      - name: Verify test quarantines
+        run: pnpm flaky:track --scan-quarantines
+
       - name: Test
         run: pnpm test
 

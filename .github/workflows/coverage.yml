@@ -1,0 +1,95 @@
+name: Coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  workspace-coverage:
+    runs-on: ubuntu-latest
+    services:
+      # Postgres service container for database-backed repository coverage
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: verixa
+          POSTGRES_PASSWORD: verixa
+          POSTGRES_DB: verixa_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U verixa -d verixa_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      # Redis service container for token revocation list integration tests
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgres://verixa:verixa@localhost:5432/verixa_test
+      DATABASE_URL: postgres://verixa:verixa@localhost:5432/verixa_test
+      TEST_REDIS_URL: redis://localhost:6379
+      REQUIRE_DATABASE_TESTS: "1"
+      REQUIRE_REDIS_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build
+        run: pnpm build
+
+      - name: Re-link workspace packages
+        run: pnpm install --frozen-lockfile
+
+      # Runs per-package coverage and merges into unified LCOV, HTML dashboard, and summary JSON (Issue 412)
+      - name: Collect and merge workspace coverage
+        run: pnpm test:workspace:coverage
+
+      # Enforces that coverage does not drop below checked-in baseline (Issue 413)
+      - name: Enforce coverage ratchet gate
+        run: |
+          pnpm coverage:ratchet --output-markdown coverage/ratchet-summary.md
+          cat coverage/ratchet-summary.md >> $GITHUB_STEP_SUMMARY
+
+      # Publishes merged coverage report for maintainer inspection
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: workspace-coverage-report
+          path: |
+            coverage/
+          retention-days: 14
+
+      # When running on main, update checked-in baseline if test coverage improved (Issue 413)
+      - name: Auto-update baseline on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          pnpm coverage:ratchet --update-baseline
+          if [[ -n $(git status --porcelain infra/ci/coverage-baseline.json) ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add infra/ci/coverage-baseline.json
+            git commit -m "chore(ci): auto-update coverage baseline [skip ci]"
+            git push
+          fi
