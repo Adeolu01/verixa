@@ -2,7 +2,8 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": ".",
-    "noEmit": true
+    "noEmit": true,
+    "allowJs": true
   },
-  "include": ["integration/**/*", "load/**/*", "ci/**/*"]
+  "include": ["integration/**/*", "load/**/*", "ci/**/*", "e2e/**/*"]
 }
