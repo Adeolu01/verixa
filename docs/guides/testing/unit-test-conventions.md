@@ -201,8 +201,17 @@ describe("JwtTokenSigner", () => {
 ```
 
 If production behavior depends on time or random choices, make that dependency
-controllable at its boundary and supply a fixed value in the test. Do not
-assert on a random result or the exact current clock time. For async code,
+controllable at its boundary and supply a fixed value in the test. Use the
+`Clock` port (`now(): Date`) for time and inject an RNG function or small
+interface for random choices; avoid reaching for `Date.now()` or
+`Math.random()` inside application logic. `@verixa/testing-kit` provides
+`FixedClock` (`set` and millisecond `advance`) and `SeededRandom` (`next`, in
+`[0, 1)`) for tests that need predictable values. The seeded generator is for
+repeatable tests only, never for tokens, keys, or other security-sensitive
+randomness. Direct system calls are reasonable at an infrastructure boundary
+that adapts the runtime to a port. The PR checklist asks reviewers to notice
+new direct calls because a lint ban would also reject those deliberate
+adapters. Do not assert on a random result or the exact current clock time. For async code,
 `await` the operation and assert its result; do not start detached work and
 wait an arbitrary duration for it to finish.
 
