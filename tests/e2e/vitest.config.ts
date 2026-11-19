@@ -11,7 +11,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     name: "@verixa/e2e-tests",
-    include: ["e2e/**/*.spec.ts"],
+    include: ["e2e/**/*.{spec,test}.ts"],
     retry: 2,
     testTimeout: 300_000,
     hookTimeout: 300_000,

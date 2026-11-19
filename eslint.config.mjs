@@ -28,6 +28,7 @@ export default tseslint.config(
       // generate-sbom.ts is TypeScript and *is* covered, via infra/ci/tsconfig.json
       // (typechecked by `pnpm typecheck:ci`).
       "infra/ci/**/*.mjs",
+      "tests/**/*.mjs",
       // Not built: written against a `webauthn_credentials` table that was
       // never migrated. See the header comment on
       // prisma-webauthn-credential-repository.ts.
