@@ -54,3 +54,52 @@ run.
 Release automation (semantic-release, driven by the Conventional Commits
 enforced in Issue 010), Docker image publishing, and deployment pipelines
 are covered in Phase 19 and Phase 20 — this document will grow accordingly.
+
+## Pipeline Observability & Failure Notifications
+
+Continuous Integration is only as effective as its feedback loop. A test suite
+that catches regressions but whose failures go unnoticed for hours or days defeats
+the foundational premise of continuous integration: that `main` is always deployable
+and regressions are addressed immediately by the authors who introduced them.
+
+### Active Failure Alerting
+
+Pipeline failures on `main` are surfaced actively via `.github/workflows/notify-on-failure.yml`.
+Rather than embedding alert steps inside each individual workflow (which would fail to
+execute if a runner crashes, runs out of memory, or exceeds a job timeout), alerting is
+architected via GitHub Actions' `workflow_run` event:
+
+1. **Independent Execution Boundary**: The notification workflow triggers after the target
+   workflow (CI, Release, Deploy, Container Scan) completes on the `main` branch. It executes
+   in an isolated runner context regardless of why or how the target workflow terminated.
+2. **Actionable Context**: Every failure alert payload carries the critical triage
+   context required to diagnose the problem without digging through logs:
+   - Failing workflow name and run number
+   - Git commit SHA and commit message
+   - Commit author / trigger actor
+   - Direct link to the execution logs on GitHub
+3. **Adapter-Based Dispatch**: Supports notification delivery across Slack, Discord,
+   and generic webhooks via webhook secrets (`SLACK_WEBHOOK_URL`, `DISCORD_WEBHOOK_URL`,
+   `ALERT_WEBHOOK_URL`). If no external chat provider is configured, failure summaries
+   are recorded directly to the GitHub Actions Job Summary (`$GITHUB_STEP_SUMMARY`).
+
+### Pipeline Health Dashboard
+
+Mean-Time-To-Detection (MTTD) and overall pipeline stability are monitored via an
+automated dashboard generator in `scripts/ci-dashboard/generate.ts`.
+
+Running on a scheduled daily cadence (06:00 UTC) and on-demand via `workflow_dispatch`,
+the script queries the workflow run history across the repository and computes key health
+indicators over a rolling 30-day window:
+
+- **Pass Rate**: The percentage of decisive runs (`success / (success + failure)`) overall
+  and broken down per workflow. Maintained targets are >= 95% (Healthy), 90-94% (Warning),
+  and < 90% (Critical).
+- **Mean & Percentile Duration**: Average, median (p50), and 95th-percentile (p95) runtime
+  for each pipeline, ensuring build duration regressions and slow tests are identified before
+  developer productivity degrades.
+- **Recent Failures**: A chronological log of recent failures on `main` with direct links
+  to failing run logs.
+
+The generated report (`ci-dashboard.md`) is exported as a workflow artifact and attached
+directly to the GitHub Actions workflow run summary for transparent pipeline visibility.

@@ -156,4 +156,16 @@ COPY --from=build --chown=verixa:verixa /out .
 USER verixa
 EXPOSE 3000
 
-CMD ["node", "dist/server.js"]
+# Issue 388 — Graceful shutdown & container signal handling:
+#
+# In Docker and Kubernetes, the primary process runs as PID 1.
+# Exec-form ENTRYPOINT (["node", "dist/server.js"]) runs node directly as PID 1,
+# ensuring the kernel delivers SIGTERM and SIGINT signals directly to the Node
+# process without intermediate shell wrapping.
+#
+# Shell-form ("CMD node dist/server.js" or "ENTRYPOINT node dist/server.js")
+# would spawn `/bin/sh -c`, making the shell PID 1 and Node a child process.
+# Because POSIX shells do not forward signals to child processes by default,
+# SIGTERM is swallowed, preventing Fastify from draining in-flight requests and
+# resulting in ungraceful SIGKILL terminations after the orchestrator's timeout.
+ENTRYPOINT ["node", "dist/server.js"]

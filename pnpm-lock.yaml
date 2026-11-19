@@ -507,6 +507,9 @@ importers:
       '@verixa/audit':
         specifier: workspace:*
         version: link:../packages/audit
+      '@verixa/config':
+        specifier: workspace:*
+        version: link:../packages/config
       '@verixa/credentials':
         specifier: workspace:*
         version: link:../packages/credentials
