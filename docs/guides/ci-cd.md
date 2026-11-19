@@ -51,6 +51,11 @@ run.
 
 ## Continuous Delivery
 
-Release automation (semantic-release, driven by the Conventional Commits
-enforced in Issue 010), Docker image publishing, and deployment pipelines
-are covered in Phase 19 and Phase 20 — this document will grow accordingly.
+Verixa's deployment and release pipeline extends Continuous Integration into an automated delivery pipeline:
+
+1. **Conventional Commits & Semantic Versioning:** Commit titles enforce the Conventional Commits specification. On merge to `master`, `semantic-release` automatically calculates the next semantic version, produces formatted `CHANGELOG.md` updates, tags the repository, and creates GitHub Releases.
+2. **Container Image Publishing:** Hardened multi-stage Docker builds produce production images tagged by commit SHA (`sha-<short>`), release version (`vX.Y.Z`), and `latest`. Multi-architecture builds (`linux/amd64` and `linux/arm64`) are compiled via Buildx Bake and published to the GitHub Container Registry (`ghcr.io`).
+3. **Automated Dependency Updates & Auto-Merge:** Renovate proposes grouped dependency upgrades. Non-breaking patch and minor updates that pass all CI suites and do not touch sensitive security/crypto packages are merged automatically, keeping dependencies current while preserving human review for sensitive updates.
+4. **Ephemeral Preview Environments:** Pull requests deploy isolated ephemeral instances of `apps/api` with dedicated backing services. Environments use scoped credentials from the `preview` GitHub Environment and are automatically torn down when the PR is closed or merged.
+
+For a full, end-to-end educational walkthrough of how a commit traverses every stage of the pipeline, see [Building an End-to-End CI/CD Pipeline](tutorials/building-a-cicd-pipeline.md).
