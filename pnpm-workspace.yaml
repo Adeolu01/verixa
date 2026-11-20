@@ -19,7 +19,7 @@ allowBuilds:
   esbuild: true
   prisma: true
   unrs-resolver: true
-  # Transitive deps of @testcontainers/postgresql (Issue 047), all denied.
+  # Transitive deps of Testcontainers (Issues 047/405), all denied.
   # cpu-features and ssh2 matter only for Docker-over-SSH connections, and we
   # connect over the local socket; protobufjs's build step precompiles
   # definitions it also resolves fine at runtime. Recorded explicitly so
