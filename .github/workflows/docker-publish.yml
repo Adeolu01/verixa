@@ -50,11 +50,14 @@ jobs:
       # A commit tag identifies content and must never be silently replaced by
       # a rebuild. The per-SHA concurrency group serializes retries; this check
       # makes a retry fail visibly instead of changing what that reference runs.
+      # The commit tag is the first line container-tags.mjs emitted, so this
+      # checks exactly the reference the publish step is about to push.
       - name: Refuse to overwrite an existing commit image
         env:
           IMAGE: ghcr.io/kyvera-labs/verixa
-          COMMIT_TAG: sha-${{ github.sha }}
         run: |
+          set -eu
+          COMMIT_TAG="$(head -n 1 tags.txt)"
           if docker buildx imagetools inspect "$IMAGE:$COMMIT_TAG" >/dev/null 2>&1; then
             echo "::error::immutable image tag $IMAGE:$COMMIT_TAG already exists"
             exit 1

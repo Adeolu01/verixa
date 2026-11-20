@@ -306,7 +306,7 @@ jobs:
         run: pnpm db:generate
 
       - name: Build the API and workspace dependencies
-        run: pnpm --filter @verixa/api^... run build
+        run: pnpm --filter @verixa/api... run build
 
       - name: Run process-level HTTP smoke test with disposable services
         env:
