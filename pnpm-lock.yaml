@@ -498,10 +498,44 @@ importers:
         version: 3.2.7(@types/node@22.20.4)(jiti@2.7.0)(lightningcss@1.33.0)(supports-color@7.2.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/testing-kit:
+    dependencies:
+      '@verixa/audit':
+        specifier: workspace:*
+        version: link:../audit
+      '@verixa/authorization':
+        specifier: workspace:*
+        version: link:../authorization
+      '@verixa/credentials':
+        specifier: workspace:*
+        version: link:../credentials
+      '@verixa/database':
+        specifier: workspace:*
+        version: link:../database
+      '@verixa/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@verixa/mfa':
+        specifier: workspace:*
+        version: link:../mfa
+      '@verixa/sessions':
+        specifier: workspace:*
+        version: link:../sessions
+      '@verixa/shared-kernel':
+        specifier: workspace:*
+        version: link:../shared-kernel
+      '@verixa/stellar-anchor':
+        specifier: workspace:*
+        version: file:packages/stellar-anchor(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0)
+      '@verixa/verification':
+        specifier: workspace:*
+        version: link:../verification
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.4
+      '@vitest/coverage-v8':
+        specifier: ^3.2.6
+        version: 3.2.7(supports-color@7.2.0)(vitest@3.2.7(@types/node@22.20.4)(jiti@2.7.0)(lightningcss@1.33.0)(supports-color@7.2.0)(tsx@4.23.15)(yaml@2.9.1))
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
