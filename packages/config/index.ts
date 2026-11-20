@@ -5,6 +5,13 @@ import { ConfigError } from "./config-error.js";
 export { ConfigError } from "./config-error.js";
 export { loadSigningKeys, SIGNING_KEY_ALGORITHMS, SIGNING_KEYS_ENV_VAR } from "./signing-keys.js";
 export type { SigningKeyAlgorithm, SigningKeyConfig } from "./signing-keys.js";
+export {
+  DevSecretsSource,
+  DotenvSecretsSource,
+  InMemorySecretsSource,
+  parseDotenv,
+} from "./secrets-source.js";
+export type { DotenvSecretsSourceOptions, SecretsSource } from "./secrets-source.js";
 
 /**
  * A boolean read from an environment variable.

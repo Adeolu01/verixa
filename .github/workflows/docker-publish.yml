@@ -1,4 +1,5 @@
 name: Docker Publish
+name: Publish API container
 
 on:
   push:
@@ -25,6 +26,39 @@ jobs:
         uses: docker/setup-qemu-action@v3
         with:
           platforms: linux/amd64,linux/arm64
+    tags: ["v[0-9]*.[0-9]*.[0-9]*"]
+
+concurrency:
+  group: container-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tags
+        id: tags
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          node infra/ci/container-tags.mjs > tags.txt
+          {
+            echo 'tags<<EOF'
+            sed 's#^#ghcr.io/kyvera-labs/verixa:#' tags.txt
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -110,3 +144,30 @@ jobs:
           docker logs smoke-${{ matrix.arch }}
           docker rm -f smoke-${{ matrix.arch }}
           exit 1
+      # A commit tag identifies content and must never be silently replaced by
+      # a rebuild. The per-SHA concurrency group serializes retries; this check
+      # makes a retry fail visibly instead of changing what that reference runs.
+      # The commit tag is the first line container-tags.mjs emitted, so this
+      # checks exactly the reference the publish step is about to push.
+      - name: Refuse to overwrite an existing commit image
+        env:
+          IMAGE: ghcr.io/kyvera-labs/verixa
+        run: |
+          set -eu
+          COMMIT_TAG="$(head -n 1 tags.txt)"
+          if docker buildx imagetools inspect "$IMAGE:$COMMIT_TAG" >/dev/null 2>&1; then
+            echo "::error::immutable image tag $IMAGE:$COMMIT_TAG already exists"
+            exit 1
+          fi
+
+      - name: Build and publish multi-platform image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: VERIXA_BUILD_VERSION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

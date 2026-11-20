@@ -14,3 +14,24 @@ export {
   type NotificationReceipt,
   type SendNotificationInput,
 } from "./src/index.js";
+
+export {
+  NotificationError,
+  InvalidRecipientError,
+  NotificationTimeoutError,
+  MalformedNotificationPayloadError,
+  NotificationTransportError,
+  type NotificationMessage,
+  type DeliveryReceipt,
+  type NotificationSender,
+} from "./application/ports/notification-sender.js";
+
+export {
+  NoopNotificationSender,
+  type NoopNotificationSenderOptions,
+} from "./infrastructure/adapters/noop-notification-sender.js";
+
+export {
+  HttpNotificationSender,
+  type HttpNotificationSenderConfig,
+} from "./infrastructure/adapters/http-notification-sender.js";

@@ -127,6 +127,8 @@ RUN cd /out \
 FROM ${NODE_IMAGE} AS production
 ENV NODE_ENV=production
 ENV PORT=3000
+ARG VERIXA_BUILD_VERSION=unknown
+ENV VERIXA_BUILD_VERSION=$VERIXA_BUILD_VERSION
 
 # The package manager and the compiler toolchain's headers are in the base
 # image because the base image is also used for building. In here they are
