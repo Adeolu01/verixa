@@ -64,6 +64,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The waiver validator parses YAML with the workspace's `yaml` package,
+      # which this job otherwise never installs. Scripts are skipped: nothing
+      # here needs Prisma or the git hooks, only the module on disk.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies for the waiver validator
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
       - name: Validate documented vulnerability waivers
         run: node infra/ci/check-trivy-waivers.mjs
 
