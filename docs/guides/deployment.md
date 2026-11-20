@@ -1,9 +1,11 @@
 # Deployment Guide
 
-This guide details the two supported production deployment paths for Verixa:
+This guide details the supported production deployment paths for Verixa:
 
 1. **Single-Host Deployment (Docker Compose):** Self-hosted or virtual machine deployment via `docker-compose.prod.yml`.
 2. **Platform-as-a-Service (PaaS / Fly.io):** Managed container deployment via `infra/docker/platform.toml`.
+
+It also details production requirements for secrets management, pre-deploy migrations, the forward-only migration policy, and the zero-downtime expand/contract schema evolution checklist.
 
 ---
 
@@ -27,8 +29,8 @@ flowchart TD
 
 - **`postgres`:** PostgreSQL 16 Alpine container with persistent volume storage (`verixa-prod-postgres-data`) and initial roles configured (`infra/postgres/02-init-app-role.sh`).
 - **`redis`:** Redis 7 Alpine cache and rate-limiting store with AOF persistence enabled (`verixa-prod-redis-data`).
-- **`migration`:** One-off ephemeral service running `pnpm --filter @verixa/database run db:migrate:deploy`. It uses Prisma to safely apply pending database schema migrations before API containers launch.
-- **`api`:** Hardened, unprivileged (UID 10001) Node.js 22 runtime built via `apps/api/Dockerfile`. Only starts after `migration` completes successfully and healthchecks pass.
+- **`migration`:** One-off ephemeral service running `./infra/docker/scripts/migrate.sh` (`pnpm --filter @verixa/database run db:migrate:deploy`). It uses Prisma to safely apply pending database schema migrations before API containers launch.
+- **`api`:** Hardened, unprivileged (UID 10001) Node.js 22 runtime built via `apps/api/Dockerfile`. Only starts after `migration` completes successfully (`condition: service_completed_successfully`) and healthchecks pass.
 - **`proxy`:** Nginx reverse proxy terminating TLS, adding security headers, and forwarding requests to `api:3000`.
 
 ### Environment Configuration
@@ -162,33 +164,318 @@ If a container fails health checks, traffic is diverted to healthy instances aut
 
 ---
 
-## Container image tags
+## 3. Secrets Management Strategy (Issue 391)
 
-The API image is published to
-`ghcr.io/kyvera-labs/verixa` for merges to `main` and semantic version tags
-(`vX.Y.Z`). Each build has a `sha-<short-sha>` reference, which is the
-deployment and rollback identifier: it points to the exact source commit and
-is never intentionally overwritten. `latest` follows `main` and release
-tags; a release also receives its `vX.Y.Z` tag.
+Verixa adheres to strict zero-leak secrets management: **no production secrets ever live in a committed file, git repository, or container image layer.**
 
-Use the commit tag in automated deployments. `latest` is convenient for
-discovery, but moves as new code is published, so a deployment recorded only
-as `latest` cannot be reproduced or rolled back reliably. Images are built for
-`linux/amd64` and `linux/arm64` from the same source commit.
+### Why Secrets Managers Beat Committed Encrypted Files
 
-## Rolling back an application image
+While tools like `git-crypt`, `sops`, or committed encrypted files allow version-controlling encrypted blobs, Verixa rejects committed secrets for production in favor of dynamic environment injection from dedicated secret managers (e.g. AWS Secrets Manager, HashiCorp Vault, Doppler).
 
-Before rolling back, select the last known-good `sha-<short-sha>` tag and
-confirm the currently deployed schema remains compatible with that image.
-Rollback does not run migrations in reverse. A migration that drops or
-renames a column, changes data representation, or tightens a constraint can
-make an older application unable to use the new schema. Follow the
-expand-and-contract checklist below before deploying migrations; if backward compatibility is not established, restore
-the database from a verified backup or deploy a forward fix instead of
-restarting old code against an incompatible schema.
+The key architectural differences are:
 
-For a single Docker host, set the database URL and session secret in the
-operator's environment, then run:
+1. **Instant Secret Rotation:** When a database password or signing key is rotated in a secret manager, applications can re-fetch or restart against the new secret immediately. With committed encrypted files, rotation requires an engineer to edit files, create a pull request, wait for CI builds, and deploy new code.
+2. **Comprehensive Audit Logging:** Secret managers provide immutable audit trails recording every identity that read, updated, or rotated a secret. Committed files provide zero visibility into who decrypted a secret on their workstation.
+3. **Strict Blast Radius & Least Privilege:** Developers and CI runners only receive temporary access tokens or build credentials. Production database passwords and signing keys are never exposed on development laptops or in CI logs.
+4. **Permanent Commit History Protection:** A committed secret—even if accidentally pushed in an unencrypted commit or decrypted during a rebase—is permanently stored in git history. With secret managers, human error cannot leak credentials into git logs.
+
+### The `SecretsSource` Port & Dev Adapter
+
+To maintain clean architecture, `@verixa/config` defines an abstract `SecretsSource` port:
+
+```typescript
+export interface SecretsSource {
+  readonly name: string;
+  getSecret(key: string): Promise<string | undefined>;
+  getSecrets(keys?: readonly string[]): Promise<Record<string, string>>;
+  hasSecret(key: string): Promise<boolean>;
+}
+```
+
+#### Local Development: `DotenvSecretsSource`
+
+For local development, engineers copy `.env.example` to `.env`. The `DotenvSecretsSource` (aliased as `DevSecretsSource`) reads from this local, uncommitted file:
+
+```typescript
+import { DotenvSecretsSource } from "@verixa/config";
+
+const secretsSource = new DotenvSecretsSource({
+  filePath: ".env",
+});
+
+const sessionSecret = await secretsSource.getSecret("SESSION_ACCESS_TOKEN_SECRET");
+```
+
+If `.env` is absent, it falls back gracefully to `process.env`.
+
+### Real-World Production Integration Patterns
+
+#### Pattern A: AWS Secrets Manager (Task-Level Injection)
+
+In AWS ECS / Fargate, secrets are injected directly into container environment variables at task launch time without embedding AWS SDK calls into application code:
+
+```json
+{
+  "name": "api",
+  "image": "ghcr.io/kyvera-labs/verixa:sha-0123456",
+  "secrets": [
+    {
+      "name": "SESSION_ACCESS_TOKEN_SECRET",
+      "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:verixa/prod/session-secret"
+    },
+    {
+      "name": "DATABASE_URL",
+      "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:verixa/prod/database-url"
+    }
+  ]
+}
+```
+
+For applications fetching secrets dynamically at runtime, implement the `SecretsSource` port:
+
+```typescript
+import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
+import type { SecretsSource } from "@verixa/config";
+
+export class AwsSecretsManagerSource implements SecretsSource {
+  public readonly name = "aws-secrets-manager";
+  private readonly client = new SecretsManagerClient({});
+
+  public async getSecret(key: string): Promise<string | undefined> {
+    try {
+      const response = await this.client.send(new GetSecretValueCommand({ SecretId: key }));
+      return response.SecretString;
+    } catch {
+      return undefined;
+    }
+  }
+
+  public async getSecrets(keys?: readonly string[]): Promise<Record<string, string>> {
+    const result: Record<string, string> = {};
+    if (!keys) return result;
+    for (const key of keys) {
+      const val = await this.getSecret(key);
+      if (val !== undefined) result[key] = val;
+    }
+    return result;
+  }
+
+  public async hasSecret(key: string): Promise<boolean> {
+    const val = await this.getSecret(key);
+    return val !== undefined;
+  }
+}
+```
+
+#### Pattern B: HashiCorp Vault (Kubernetes Sidecar / Agent)
+
+In Kubernetes, the Vault Agent Injector writes secrets to an in-memory `tmpfs` volume or injects environment variables:
+
+```yaml
+annotations:
+  vault.hashicorp.com/agent-inject: "true"
+  vault.hashicorp.com/role: "verixa-api"
+  vault.hashicorp.com/agent-inject-secret-config: "secret/data/verixa/production"
+  vault.hashicorp.com/agent-inject-template-config: |
+    {{- with secret "secret/data/verixa/production" -}}
+    SESSION_ACCESS_TOKEN_SECRET="{{ .Data.data.session_access_token_secret }}"
+    DATABASE_URL="{{ .Data.data.database_url }}"
+    {{- end -}}
+```
+
+#### Pattern C: Doppler CLI Injection
+
+For Doppler users, the CLI injects secrets into the runtime environment:
+
+```bash
+doppler run -- docker compose -f docker-compose.prod.yml up -d
+```
+
+---
+
+## 4. Migrations-on-Deploy: Dedicated Pre-Start Step (Issue 392)
+
+Verixa separates schema migration from application startup: **migrations execute in a dedicated, pre-deploy one-shot step before any API replica boots.**
+
+### Why `prisma migrate deploy` (Not `prisma migrate dev`)
+
+- `prisma migrate dev` is strictly a development command: it generates new migration files, inspects local drift, prompts interactively to reset databases when drift occurs, and requires an auxiliary shadow database.
+- `prisma migrate deploy` is the deterministic production command: it applies pending, committed migration files in lexical order without prompting or generating files.
+
+### Avoiding the Multi-Replica Race Condition
+
+In modern deployments, multiple API container replicas boot in parallel. If each API instance attempted to run `prisma migrate deploy` during application startup:
+
+1. **Deadlocks and Contention:** Multiple instances concurrently query and attempt to acquire advisory or transactional locks on the `_prisma_migrations` tracking table.
+2. **Schema Inconsistency:** Replicas that start faster may serve incoming traffic against an intermediate, half-migrated database schema while a slower replica is still executing DDL.
+3. **Flapping Failures:** If migration fails mid-flight, all replicas crash-loop simultaneously, rendering the entire service unavailable.
+
+Verixa solves this by ensuring migrations execute as a single-flight prerequisite:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Deployer as CI / Deploy Pipeline
+    participant DB as PostgreSQL
+    participant Migrator as One-Shot Migration Job
+    participant API as API Replicas (N instances)
+
+    Deployer->>DB: Check readiness
+    Deployer->>Migrator: Run ./infra/docker/scripts/migrate.sh
+    activate Migrator
+    Migrator->>DB: Apply pending DDL migrations (Single-flight)
+    DB-->>Migrator: Schema updated
+    Migrator-->>Deployer: Exit code 0 (Success)
+    deactivate Migrator
+
+    Deployer->>API: Boot replicas (rolling deploy)
+    activate API
+    API->>DB: Connect with unprivileged verixa_app role
+    API-->>Deployer: Health check passes (/health)
+    deactivate API
+```
+
+### Automation in Tooling
+
+1. **Production Compose:** `docker-compose.prod.yml` defines `migration` as a one-shot container with `restart: "no"`. The `api` container explicitly declares `depends_on: { migration: { condition: service_completed_successfully } }`.
+2. **Deployment Script:** `infra/docker/scripts/migrate.sh` validates owner credentials and executes `db:migrate:deploy`.
+3. **CI/CD Pipeline:** Deployment pipelines run a `pre-deploy-migrations` job executing `./infra/docker/scripts/migrate.sh` and assert that running the migration runner twice in a row is an idempotent no-op before triggering container rollout.
+
+---
+
+## 5. Forward-Only Migration Policy & Rollback Procedure (Issue 393)
+
+Production databases in Verixa follow a **strictly forward-only migration policy**. Auto-generated down-migrations are prohibited in production.
+
+### Why Roll Forward, Don't Roll Back
+
+1. **Down-Migrations Silently Fail:** Down-migrations are rarely tested, frequently lossy (dropping columns destroys data irreversibly), and often out-of-date by the time an emergency occurs.
+2. **Rolling Deploy Compatibility:** During a rolling deploy or canary release, old and new application versions run simultaneously. Reverting the database schema immediately crashes the new pods that are already serving traffic.
+3. **Clean Auditability:** Forward-only migrations preserve a complete, linear history of database evolution in `_prisma_migrations`.
+
+### Correcting a Defective Migration (Fix-Forward Runbook)
+
+When a deployed migration causes an unexpected issue:
+
+1. **Do Not Roll Back the Schema:** Never execute manual `DROP` statements or reverse Prisma migrations on live databases.
+2. **Assess Application Compatibility:** If the application image cannot operate with the current schema, check whether rolling back the application container image alone resolves the issue (see [Zero-Downtime Migration Compatibility Checklist](#6-zero-downtime-migration-compatibility-checklist-issue-394)).
+3. **Generate a Fix-Forward Migration:**
+   Create a new migration using the template at `packages/database/prisma/templates/fix-forward.sql`:
+   ```bash
+   pnpm --filter @verixa/database exec prisma migrate dev --create-only --name fix_forward_<incident_description>
+   ```
+4. **Compensate Safely:** Write compensating DDL (e.g. relaxing an overly strict constraint, creating a missing index, or adding a corrected column).
+5. **Document Data Preservation:** If any data must be moved or cleaned up, include a `-- DATA PRESERVATION:` comment block explaining the backup and preservation verification steps.
+6. **Deploy the Fix:** Deploy the fix forward through the standard pre-deploy pipeline.
+
+### Enforcing Data Preservation in CI
+
+Verixa's CI check (`infra/ci/check-migration-safety.ts`) scans every migration file:
+
+- Destructive operations (`DROP TABLE`, `DROP COLUMN`, `DROP SCHEMA`, `TRUNCATE`) are blocked unless accompanied by a documented data-preservation note (`-- DATA PRESERVATION: <details>`).
+
+---
+
+## 6. Zero-Downtime Migration Compatibility Checklist (Issue 394)
+
+To support zero-downtime rolling deployments, schema changes must obey the **expand/contract pattern**: **"old code, new schema" must always be a valid, operational combination.**
+
+### The Expand/Contract Lifecycle
+
+```mermaid
+flowchart LR
+    subgraph Deploy1["Deploy 1: Expand"]
+        M1["Add nullable column or table"]
+        C1["Deploy code reading old, writing both"]
+    end
+    subgraph Deploy2["Deploy 2: Backfill"]
+        B["Backfill historical data in batches"]
+    end
+    subgraph Deploy3["Deploy 3: Contract"]
+        C2["Deploy code reading new only"]
+        M2["Enforce NOT NULL constraint or drop old"]
+    end
+
+    Deploy1 --> Deploy2 --> Deploy3
+```
+
+### Compatibility Checklist & Examples
+
+#### Case 1: Adding a Mandatory Column
+
+❌ **Unsafe Single-Step Migration (Blocked by CI advisory check):**
+
+```sql
+-- Fails zero-downtime check: existing rows have no value, and old replicas insert NULL
+ALTER TABLE "users" ADD COLUMN "organization_role" TEXT NOT NULL;
+```
+
+✅ **Safe Expand/Contract Strategy:**
+
+- **Step 1 (Expand - Release N):** Add the column as nullable (or with a safe constant DEFAULT):
+  ```sql
+  ALTER TABLE "users" ADD COLUMN "organization_role" TEXT;
+  ```
+- **Step 2 (Deploy - Release N):** Deploy code that writes `organization_role` on new user creation and provides a fallback when reading NULL.
+- **Step 3 (Backfill):** Backfill existing rows:
+  ```sql
+  UPDATE "users" SET "organization_role" = 'member' WHERE "organization_role" IS NULL;
+  ```
+- **Step 4 (Contract - Release N+1):** Enforce the `NOT NULL` constraint in the subsequent release once all rows are guaranteed populated:
+  ```sql
+  ALTER TABLE "users" ALTER COLUMN "organization_role" SET NOT NULL;
+  ```
+
+#### Case 2: Renaming a Column
+
+❌ **Unsafe Single-Step Migration:**
+
+```sql
+ALTER TABLE "users" RENAME COLUMN "given_name" TO "first_name";
+```
+
+✅ **Safe Expand/Contract Strategy:**
+
+- **Step 1 (Expand):** Add `first_name` as a nullable column.
+- **Step 2 (Deploy):** Update application code to write to both `given_name` and `first_name` (dual-write), but read from `given_name`.
+- **Step 3 (Backfill):** `UPDATE "users" SET "first_name" = "given_name" WHERE "first_name" IS NULL;`
+- **Step 4 (Switch):** Deploy application version reading from `first_name`.
+- **Step 5 (Contract):** Drop `given_name` with `-- DATA PRESERVATION:` note.
+
+#### Case 3: Dropping a Column or Table
+
+- **Step 1 (Deprecate):** Remove all application reads and writes to the column/table. Deploy and verify in production.
+- **Step 2 (Contract):** In a subsequent release, drop the column/table with the required preservation note:
+  ```sql
+  -- DATA PRESERVATION: Column "deprecated_field" verified unused for 30 days and archived in cold storage.
+  ALTER TABLE "users" DROP COLUMN "deprecated_field";
+  ```
+
+### Automated Safety Check
+
+Run the migration safety checker locally before pushing:
+
+```bash
+pnpm run check:migration-safety
+```
+
+---
+
+## 7. Container image tags
+
+The API image is published to `ghcr.io/kyvera-labs/verixa` for merges to `main` and semantic version tags (`vX.Y.Z`). Each build has a `sha-<short-sha>` reference, which is the deployment and rollback identifier: it points to the exact source commit and is never intentionally overwritten. `latest` follows `main` and release tags; a release also receives its `vX.Y.Z` tag.
+
+Use the commit tag in automated deployments. `latest` is convenient for discovery, but moves as new code is published, so a deployment recorded only as `latest` cannot be reproduced or rolled back reliably. Images are built for `linux/amd64` and `linux/arm64` from the same source commit.
+
+---
+
+## 8. Rolling back an application image
+
+Before rolling back, select the last known-good `sha-<short-sha>` tag and confirm the currently deployed schema remains compatible with that image.
+
+Rollback does not run migrations in reverse. A migration that drops or renames a column, changes data representation, or tightens a constraint can make an older application unable to use the new schema. Follow the expand-and-contract checklist before deploying migrations; if backward compatibility is not established, restore the database from a verified backup or deploy a forward fix instead of restarting old code against an incompatible schema.
+
+For a single Docker host, set the database URL and session secret in the operator's environment, then run:
 
 ```bash
 SESSION_ACCESS_TOKEN_SECRET='...' \
@@ -198,33 +485,6 @@ API_IMAGE='ghcr.io/kyvera-labs/verixa' \
 ./infra/docker/scripts/rollback.sh sha-0123456
 ```
 
-The script pulls the requested image, replaces the API container, and waits
-for `/health`. It reports `/version` so the operator can confirm which build
-is serving. It does not alter database state. Adapt the container replacement
-step to the deployment platform when running Kubernetes or another scheduler;
-the invariant is to point the API deployment at the selected immutable tag,
-then verify health and version before declaring the rollback complete.
+The script pulls the requested image, replaces the API container, and waits for `/health`. It reports `/version` so the operator can confirm which build is serving. It does not alter database state. Adapt the container replacement step to the deployment platform when running Kubernetes or another scheduler; the invariant is to point the API deployment at the selected immutable tag, then verify health and version before declaring the rollback complete.
 
-CI exercises this procedure with version A and B images: it starts B, selects
-A with the same rollback script, and asserts that both the health response and
-version response match A.
-
-## Migration compatibility checklist
-
-This is the rollback safety gate for schema changes (roadmap issue 394):
-
-- Add new columns, tables, or indexes in a way old application versions ignore.
-- Deploy code that can read both old and new representations before backfilling.
-- Backfill in bounded, restartable batches while both code versions remain
-  compatible.
-- Switch reads and writes to the new representation only after the backfill
-  is verified.
-- Remove old columns or constraints in a later release, after no supported
-  application image depends on them.
-- Before a rollback, check the exact migration history and confirm the old
-  image can still read and write the live schema. A destructive migration
-  fails this check; do a forward fix or a separately planned data restore.
-
-Expand-and-contract takes more than one deployment, but it preserves the
-ability to roll back the application between steps. A one-shot schema rewrite
-looks simpler, yet couples a code release to an irreversible database state.
+CI exercises this procedure with version A and B images: it starts B, selects A with the same rollback script, and asserts that both the health response and version response match A.

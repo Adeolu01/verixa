@@ -150,6 +150,12 @@ jobs:
       - name: Check Prisma schema formatting
         run: pnpm --filter @verixa/database run db:format:check
 
+      # Migration safety & policy check (Issues 393 & 394). Verifies forward-only
+      # policy (flags undocumented destructive drops) and zero-downtime compatibility
+      # (flags single-step NOT NULL column additions without DEFAULTs).
+      - name: Check migration safety and zero-downtime policy
+        run: pnpm run check:migration-safety
+
       # Drift detection: does replaying every migration actually produce the
       # schema.prisma in the repo? They diverge when someone edits the schema
       # and forgets to generate a migration — the edit works locally (the
@@ -296,6 +302,35 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: verixa
+          POSTGRES_PASSWORD: verixa
+          POSTGRES_DB: verixa_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U verixa -d verixa_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://verixa:verixa@localhost:5432/verixa_test
+      TEST_DATABASE_URL: postgres://verixa:verixa@localhost:5432/verixa_test
+      TEST_REDIS_URL: redis://localhost:6379
+      REQUIRE_DATABASE_TESTS: "1"
+      REQUIRE_REDIS_TESTS: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -312,12 +347,16 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
-      - name: Build the API and workspace dependencies
-        run: pnpm --filter @verixa/api... run build
+      - name: Build
+        run: pnpm build
+
+      - name: Re-link workspace packages
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply migrations to test database
+        run: pnpm db:migrate:deploy
 
       - name: Run process-level HTTP smoke test with disposable services
-        env:
-          REQUIRE_DATABASE_TESTS: "1"
         run: pnpm --filter @verixa/integration-tests run test:e2e
 
   # Verifies the *compose* stack's database roles, which nothing else covers.
