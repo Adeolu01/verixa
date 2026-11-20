@@ -80,7 +80,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      SESSION_ACCESS_TOKEN_SECRET: ${SESSION_ACCESS_TOKEN_SECRET:?SESSION_ACCESS_TOKEN_SECRET is required}
     depends_on:
       postgres:
         condition: service_healthy

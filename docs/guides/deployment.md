@@ -50,7 +50,8 @@ REDIS_PASSWORD=super-secret-redis-password
 REDIS_URL=redis://:super-secret-redis-password@redis:6379
 
 # Application Secrets
-JWT_SECRET=generate-a-strong-random-64-character-jwt-secret-string
+# At least 32 characters; generate with `openssl rand -base64 48`
+SESSION_ACCESS_TOKEN_SECRET=replace-with-output-of-openssl-rand-base64-48
 LOG_LEVEL=info
 
 # Edge Ports
@@ -132,7 +133,7 @@ fly secrets set \
   DATABASE_URL="postgresql://verixa_app:password@your-postgres-host:5432/verixa" \
   DATABASE_MIGRATION_URL="postgresql://verixa:password@your-postgres-host:5432/verixa" \
   REDIS_URL="redis://:password@your-redis-host:6379" \
-  JWT_SECRET="generate-a-strong-random-64-character-jwt-secret-string" \
+  SESSION_ACCESS_TOKEN_SECRET="$(openssl rand -base64 48)" \
   LOG_LEVEL="info"
 ```
 
