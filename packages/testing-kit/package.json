@@ -8,7 +8,9 @@
   "types": "index.ts",
   "exports": {
     ".": "./index.ts",
-    "./contract-test": "./contract-test.ts"
+    "./contract-test": "./contract-test.ts",
+    "./factories": "./factories/index.ts",
+    "./fakes": "./fakes/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
