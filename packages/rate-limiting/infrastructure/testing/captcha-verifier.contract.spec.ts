@@ -1,4 +1,5 @@
-import { defineContractTests, Result } from "@verixa/shared-kernel";
+import { Result } from "@verixa/shared-kernel";
+import { defineContractTests } from "@verixa/testing-kit";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -65,7 +66,6 @@ function createMockFetch(
 }
 
 defineContractTests<CaptchaVerifier>(
-  "CaptchaVerifier",
   [
     {
       name: "NoopCaptchaVerifier",

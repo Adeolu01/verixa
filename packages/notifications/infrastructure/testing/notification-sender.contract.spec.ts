@@ -1,4 +1,5 @@
-import { defineContractTests, Result } from "@verixa/shared-kernel";
+import { Result } from "@verixa/shared-kernel";
+import { defineContractTests } from "@verixa/testing-kit";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -50,7 +51,6 @@ function createMockNotificationFetch(mode: "ok" | "timeout" | "transport_error")
 }
 
 defineContractTests<NotificationSender>(
-  "NotificationSender",
   [
     {
       name: "NoopNotificationSender",

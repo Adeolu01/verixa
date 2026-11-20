@@ -42,10 +42,6 @@ export {
 } from "./infrastructure/tenant-context.js";
 export { NoopRateLimiter } from "./infrastructure/adapters/noop-rate-limiter.js";
 export {
-  defineContractTests,
-  type AdapterImplementation,
-} from "./infrastructure/testing/contract-test.js";
-export {
   RateLimitExceededError,
   type RateLimitKey,
   type RateLimitResult,
