@@ -14,6 +14,13 @@ export {
 } from "./schema.js";
 export { loadSigningKeys, SIGNING_KEY_ALGORITHMS, SIGNING_KEYS_ENV_VAR } from "./signing-keys.js";
 export type { SigningKeyAlgorithm, SigningKeyConfig } from "./signing-keys.js";
+export {
+  DevSecretsSource,
+  DotenvSecretsSource,
+  InMemorySecretsSource,
+  parseDotenv,
+} from "./secrets-source.js";
+export type { DotenvSecretsSourceOptions, SecretsSource } from "./secrets-source.js";
 
 /** The fully validated, immutable application configuration. */
 export type Config = Readonly<z.infer<typeof envSchema>>;

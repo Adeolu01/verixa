@@ -120,6 +120,8 @@ RUN cd /out \
 # ---- runtime: minimal image, non-root, only the deployed bundle ----
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production
+ARG VERIXA_BUILD_VERSION=unknown
+ENV VERIXA_BUILD_VERSION=$VERIXA_BUILD_VERSION
 
 # The package manager and the compiler toolchain's headers are in the base
 # image because the base image is also used for building. In here they are

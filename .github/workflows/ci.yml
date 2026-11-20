@@ -150,6 +150,12 @@ jobs:
       - name: Check Prisma schema formatting
         run: pnpm --filter @verixa/database run db:format:check
 
+      # Migration safety & policy check (Issues 393 & 394). Verifies forward-only
+      # policy (flags undocumented destructive drops) and zero-downtime compatibility
+      # (flags single-step NOT NULL column additions without DEFAULTs).
+      - name: Check migration safety and zero-downtime policy
+        run: pnpm run check:migration-safety
+
       # Drift detection: does replaying every migration actually produce the
       # schema.prisma in the repo? They diverge when someone edits the schema
       # and forgets to generate a migration — the edit works locally (the
@@ -190,6 +196,13 @@ jobs:
       # nothing else runs before the SBOM step.
       - name: Typecheck CI tooling
         run: pnpm typecheck:ci
+
+      # Issue 414: Flaky test quarantine audit.
+      # Scans the test suites to ensure no @quarantine tags have reached their
+      # time-boxed expiration date. If a quarantined test's deadline has elapsed,
+      # this step fails CI so the test must either be fixed or explicitly re-scoped.
+      - name: Verify test quarantines
+        run: pnpm flaky:track --scan-quarantines
 
       - name: Test
         run: pnpm test
@@ -293,6 +306,65 @@ jobs:
 
       - name: Run authorization repository contract tests against Testcontainers Postgres
         run: pnpm --filter @verixa/authorization run test
+
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: verixa
+          POSTGRES_PASSWORD: verixa
+          POSTGRES_DB: verixa_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U verixa -d verixa_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://verixa:verixa@localhost:5432/verixa_test
+      TEST_DATABASE_URL: postgres://verixa:verixa@localhost:5432/verixa_test
+      TEST_REDIS_URL: redis://localhost:6379
+      REQUIRE_DATABASE_TESTS: "1"
+      REQUIRE_REDIS_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build
+        run: pnpm build
+
+      - name: Re-link workspace packages
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply migrations to test database
+        run: pnpm db:migrate:deploy
+
+      - name: Run process-level HTTP smoke test with disposable services
+        run: pnpm --filter @verixa/integration-tests run test:e2e
 
   # Verifies the *compose* stack's database roles, which nothing else covers.
   #
@@ -410,6 +482,59 @@ jobs:
       - name: Build image
         run: docker build -f apps/api/Dockerfile -t verixa-api:ci .
 
+      # The waiver validator parses YAML with the workspace's `yaml` package,
+      # which this job otherwise never installs. Scripts are skipped: nothing
+      # here needs Prisma or the git hooks, only the module on disk.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies for the waiver validator
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Validate documented vulnerability waivers
+        run: node infra/ci/check-trivy-waivers.mjs
+
+      - name: Scan OS packages
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: image
+          image-ref: verixa-api:ci
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          vuln-type: os
+          ignore-unfixed: true
+          exit-code: "1"
+          format: json
+          output: trivy-os.json
+
+      - name: Scan application dependencies
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: image
+          image-ref: verixa-api:ci
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          vuln-type: library
+          ignore-unfixed: true
+          exit-code: "1"
+          format: json
+          output: trivy-dependencies.json
+
+      - name: Archive image scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-ci-${{ github.run_number }}
+          path: |
+            trivy-os.json
+            trivy-dependencies.json
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Run container
         run: |
           docker run -d --name verixa-api -p 3000:3000 \
@@ -522,3 +647,40 @@ jobs:
       - name: Stop container
         if: always()
         run: docker rm -f verixa-api || true
+
+      # The rollback drill proves that selecting an earlier immutable image
+      # restores the code that actually serves requests. The response carries
+      # its build version so this assertion cannot pass by checking only that
+      # some process answered on the port.
+      - name: Build two versioned images for the rollback drill
+        run: |
+          docker build -f apps/api/Dockerfile --build-arg VERIXA_BUILD_VERSION=drill-a -t verixa-api:drill-a .
+          docker build -f apps/api/Dockerfile --build-arg VERIXA_BUILD_VERSION=drill-b -t verixa-api:drill-b .
+
+      - name: Deploy version B before rolling back to version A
+        env:
+          SESSION_ACCESS_TOKEN_SECRET: ci-rollback-secret-value-at-least-32-characters
+          DATABASE_URL: postgres://verixa:verixa@127.0.0.1:5432/verixa
+          API_IMAGE: verixa-api
+          API_CONTAINER_NAME: verixa-api-drill
+          API_PORT: "3001"
+          API_BIND_ADDRESS: 127.0.0.1
+          API_PULL_IMAGE: "0"
+        run: |
+          set -eu
+          docker run -d --name verixa-api-drill --publish 127.0.0.1:3001:3000 \
+            --env SESSION_ACCESS_TOKEN_SECRET="$SESSION_ACCESS_TOKEN_SECRET" \
+            --env DATABASE_URL="$DATABASE_URL" \
+            verixa-api:drill-b
+          for _ in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:3001/health >/dev/null; then break; fi
+            sleep 1
+          done
+          test "$(curl -sf http://127.0.0.1:3001/version)" = '{"version":"drill-b"}'
+          API_PORT=3001 ./infra/docker/scripts/rollback.sh drill-a
+          test "$(curl -sf http://127.0.0.1:3001/version)" = '{"version":"drill-a"}'
+          test "$(curl -sf http://127.0.0.1:3001/health)" = '{"status":"ok"}'
+
+      - name: Stop rollback drill container
+        if: always()
+        run: docker rm -f verixa-api-drill || true
