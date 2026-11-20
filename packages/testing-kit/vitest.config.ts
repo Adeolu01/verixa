@@ -41,3 +41,4 @@ export default mergeConfig(
     },
   }),
 );
+export default mergeConfig(baseConfig, defineConfig({ test: { name: "@verixa/testing-kit" } }));
