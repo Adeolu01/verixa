@@ -20,6 +20,7 @@
     "@verixa/audit": "workspace:*",
     "@verixa/authorization": "workspace:*",
     "@verixa/credentials": "workspace:*",
+    "@verixa/database": "workspace:*",
     "@verixa/identity": "workspace:*",
     "@verixa/mfa": "workspace:*",
     "@verixa/sessions": "workspace:*",
