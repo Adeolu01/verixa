@@ -34,7 +34,7 @@ export function composeArguments(options) {
  */
 export async function runDocker(argv, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn("docker", argv, { stdio: ["pipe", "pipe", "inherit"] });
+    const child = spawn("docker", argv, { stdio: ["pipe", "pipe", "pipe"] });
     const chunks = [];
     let stderr = "";
     child.stdout.on("data", (chunk) => chunks.push(Buffer.from(chunk)));

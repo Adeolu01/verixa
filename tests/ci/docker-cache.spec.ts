@@ -28,7 +28,7 @@ describe("Docker layer cache configuration (Issue 384 / #496)", () => {
   it("accepts the repository's Dockerfile and publish workflow", () => {
     const plan = analyzeCacheConfiguration(DOCKERFILE, WORKFLOW);
     expect(plan.errors).toEqual([]);
-    expect(DOCKERFILE).toMatch(/^# syntax=docker\/dockerfile:1\.9$/m);
+    expect(DOCKERFILE).toMatch(/^# syntax=docker\/dockerfile:1\.20$/m);
     expect(plan.manifestPaths).toContain("pnpm-lock.yaml");
     expect(plan.cacheFrom.some((value: string) => value.includes("type=gha"))).toBe(true);
     expect(
@@ -36,6 +36,12 @@ describe("Docker layer cache configuration (Issue 384 / #496)", () => {
         (value: string) => value.includes("type=gha") && value.includes("mode=max"),
       ),
     ).toBe(true);
+  });
+
+  it("rejects a frontend that cannot parse COPY --parents", () => {
+    const regressed = DOCKERFILE.replace("dockerfile:1.20", "dockerfile:1.9");
+    const plan = analyzeCacheConfiguration(regressed, WORKFLOW);
+    expect(plan.errors.join(" ")).toMatch(/dockerfile:1\.20\+/);
   });
 
   it("ignores source edits when fingerprinting the dependency layer inputs", () => {

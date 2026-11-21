@@ -11,6 +11,7 @@ import {
 
 interface ComposeService {
   image?: string;
+  networks?: unknown;
   ports?: unknown;
   volumes?: unknown;
 }
@@ -37,6 +38,17 @@ function resolved(base = BASE, overlay = OVERLAY): ComposeConfig {
 describe("Production compose overlay (Issue 385 / #497)", () => {
   it("resolves to a production topology with no dev ports or source mounts", () => {
     expect(productionTopologyErrors(resolved())).toEqual([]);
+  });
+
+  it("accepts the object form of networks produced by docker compose config", () => {
+    const config = resolved();
+    config.services.proxy!.networks = { "verixa-internal": null };
+    expect(productionTopologyErrors(config)).toEqual([]);
+
+    config.services.proxy!.networks = { default: null };
+    expect(productionTopologyErrors(config)).toContain(
+      "proxy is not attached to the internal compose network",
+    );
   });
 
   it("catches a lost port reset before it reaches the host", () => {

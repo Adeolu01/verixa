@@ -1,6 +1,6 @@
-# syntax=docker/dockerfile:1.9
+# syntax=docker/dockerfile:1.20
 #
-# Issue 384 / #496: frontend 1.9 is required for `COPY --parents` and stable
+# Issue 384 / #496: frontend 1.20 is required for stable `COPY --parents` and
 # cache mounts. Both are used below to keep dependency installation out of the
 # layer that invalidates on every source edit.
 #

@@ -40,7 +40,6 @@ export function createBackupPlan(options) {
           "--format=custom",
           "--no-owner",
           "--no-privileges",
-          "--file=/dev/stdout",
           "--dbname",
           options.postgresDatabase ?? "verixa",
         ],

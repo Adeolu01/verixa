@@ -113,6 +113,13 @@ function volumeTargets(service) {
   return (service?.volumes ?? []).map((volume) => composeItemKey(volume, "volumes"));
 }
 
+function networkNames(service) {
+  const networks = service?.networks;
+  if (Array.isArray(networks)) return networks.map(String);
+  if (isPlainObject(networks)) return Object.keys(networks);
+  return [];
+}
+
 /**
  * Behavioral assertions on a resolved compose config. Each check answers an
  * acceptance criterion from Issues 385/386/387 rather than checking that a
@@ -180,7 +187,7 @@ export function productionTopologyErrors(config) {
     errors.push("proxy does not mount the certificate directory");
   if (!targets.includes("/var/www/certbot"))
     errors.push("proxy does not serve ACME challenge files");
-  if (!(proxy.networks ?? []).includes("verixa-internal")) {
+  if (!networkNames(proxy).includes("verixa-internal")) {
     errors.push("proxy is not attached to the internal compose network");
   }
 

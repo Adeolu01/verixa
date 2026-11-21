@@ -55,6 +55,7 @@ describe("Production backup and restore (Issue 386 / #498)", () => {
     expect(calls).toHaveLength(2);
     expect(calls[0]!.argv.join(" ")).toContain("exec -T -e PGUSER -e PGPASSWORD postgres pg_dump");
     expect(calls[0]!.argv).toContain("--format=custom");
+    expect(calls[0]!.argv).not.toContain("--file=/dev/stdout");
     expect(calls[1]!.argv.join(" ")).toContain("redis redis-cli --rdb -");
     expect(calls[1]!.argv).toContain("REDISCLI_AUTH");
     expect(calls.every((call) => !call.argv.some((arg) => arg.includes("ci-secret")))).toBe(true);
