@@ -93,7 +93,7 @@ defineContractTests<GeoIpResolver>(
         }),
     },
   ],
-  (getAdapter) => {
+  (getAdapter: () => GeoIpResolver) => {
     it("resolves valid IP addresses to approximate coordinates and country code", async () => {
       const resolver = getAdapter();
       const result = await resolver.resolve("198.51.100.1");
