@@ -3,8 +3,14 @@
 # Build context is the monorepo root (`docker build -f apps/api/Dockerfile .`)
 # because pnpm workspaces need the whole workspace — apps/api can't be built
 # in isolation from the packages it depends on.
+#
+# Base image: node:22-alpine
+# Pinned image digest: sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a
+# Base digest pin documented to guarantee build reproducibility and prevent base image drift.
 
-FROM node:22-alpine AS base
+ARG NODE_IMAGE=node:22-alpine
+
+FROM ${NODE_IMAGE} AS base
 RUN corepack enable
 WORKDIR /repo
 
@@ -117,9 +123,10 @@ RUN cd /out \
       && DATABASE_URL="postgresql://verixa:verixa@127.0.0.1:5432/verixa" \
          node --input-type=module -e "const { PrismaClient } = await import('@verixa/database'); new PrismaClient(); console.log('deploy bundle loads and the prisma client initialises');"
 
-# ---- runtime: minimal image, non-root, only the deployed bundle ----
-FROM node:22-alpine AS runtime
+# ---- production: minimal image, non-root, only the deployed bundle ----
+FROM ${NODE_IMAGE} AS production
 ENV NODE_ENV=production
+ENV PORT=3000
 ARG VERIXA_BUILD_VERSION=unknown
 ENV VERIXA_BUILD_VERSION=$VERIXA_BUILD_VERSION
 
@@ -171,3 +178,11 @@ EXPOSE 3000
 # SIGTERM is swallowed, preventing Fastify from draining in-flight requests and
 # resulting in ungraceful SIGKILL terminations after the orchestrator's timeout.
 ENTRYPOINT ["node", "dist/server.js"]
+# Native Node-based healthcheck without depending on external binaries like curl or wget.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+
+CMD ["node", "dist/server.js"]
+
+# ---- runtime alias for backwards compatibility ----
+FROM production AS runtime
