@@ -54,3 +54,11 @@ export {
   type AccountRateLimitContext,
   type AccountRateLimitResult,
 } from "./application/strategies/account-strategy.js";
+
+export {
+  CompositeRateLimitStrategy,
+  type CompositeRateLimitStrategyOptions,
+  type CompositeRateLimitContext,
+  type CompositeRateLimitResult,
+  type RateLimitDenialReason,
+} from "./application/strategies/composite-strategy.js";
