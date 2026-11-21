@@ -46,3 +46,11 @@ export {
   type IpRateLimitContext,
   type IpRateLimitResult,
 } from "./application/strategies/ip-strategy.js";
+
+export {
+  AccountRateLimitStrategy,
+  normalizeAccountIdentifier,
+  type AccountRateLimitStrategyOptions,
+  type AccountRateLimitContext,
+  type AccountRateLimitResult,
+} from "./application/strategies/account-strategy.js";

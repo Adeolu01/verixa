@@ -238,6 +238,15 @@ To prevent header spoofing, `IpRateLimitStrategy` requires an explicit `trustedP
 - When `trustedProxyCount <= 0` (direct connection to node), all `X-Forwarded-For` headers are completely ignored, and the socket's `remoteAddress` is used.
 - When `trustedProxyCount > 0` (e.g. `trustedProxyCount = 1` behind a reverse proxy or cloud load balancer), the proxy appends the real client IP to the right of any client-supplied headers. The strategy extracts the IP at index `ips.length - trustedProxyCount`, correctly skipping trusted hops while ignoring any forged IPs prepended earlier in the header.
 
+### Account-Scoped Limiting (`AccountRateLimitStrategy`)
+
+Distributed credential-stuffing botnets rotate across thousands of distinct residential or proxy IP addresses, issuing only one or two requests per IP to intentionally bypass IP-based rate limiting.
+
+`AccountRateLimitStrategy` (`packages/rate-limiting/application/strategies/account-strategy.ts`) closes this vulnerability by deriving bucket keys from the target account identifier (e.g. `account:user@example.com` or `account:userId`), normalized to prevent casing and whitespace evasion:
+
+- All requests targeting the same account across any number of different IPs are throttled together.
+- Unrelated accounts remain unaffected.
+
 ## Transparent rehashing
 
 A successful login is the only moment the plaintext password exists in memory,
