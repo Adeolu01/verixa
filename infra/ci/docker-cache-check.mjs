@@ -161,8 +161,8 @@ export function analyzeCacheConfiguration(dockerfileText, workflowText) {
     workflow.cacheTo.some((value) => value.includes("type=gha") && value.includes("mode=max"));
   const errors = [];
 
-  if (!/^#\s*syntax=docker\/dockerfile:1\.[7-9]/.test(dockerfileText)) {
-    errors.push("Dockerfile needs the dockerfile:1.7 frontend for --parents and cache mounts");
+  if (!/^#\s*syntax=docker\/dockerfile:1\.(?:[89]|1\d)/.test(dockerfileText)) {
+    errors.push("Dockerfile needs the dockerfile:1.8+ frontend for --parents and cache mounts");
   }
   if (!dockerfile.usesParentsCopy) {
     errors.push("deps stage must copy workspace manifests with COPY --parents");

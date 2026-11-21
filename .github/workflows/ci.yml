@@ -720,6 +720,7 @@ jobs:
     env:
       POSTGRES_PASSWORD: ci-postgres-password
       REDIS_PASSWORD: ci-redis-password
+      REDIS_URL: redis://:ci-redis-password@redis:6379
       DATABASE_URL: postgres://verixa_app:verixa_app@postgres:5432/verixa
       DATABASE_MIGRATION_URL: postgres://verixa:ci-postgres-password@postgres:5432/verixa
       SESSION_ACCESS_TOKEN_SECRET: ci-smoke-secret-at-least-32-characters
@@ -766,6 +767,11 @@ jobs:
     env:
       POSTGRES_PASSWORD: ci-postgres-password
       REDIS_PASSWORD: ci-redis-password
+      DATABASE_URL: postgres://verixa_app:verixa_app@postgres:5432/verixa
+      DATABASE_MIGRATION_URL: postgres://verixa:ci-postgres-password@postgres:5432/verixa
+      REDIS_URL: redis://:ci-redis-password@redis:6379
+      SESSION_ACCESS_TOKEN_SECRET: ci-smoke-secret-at-least-32-characters
+      VERIXA_API_IMAGE: verixa-api:ci
       PGUSER: verixa
       PGPASSWORD: ci-postgres-password
       REDISCLI_AUTH: ci-redis-password

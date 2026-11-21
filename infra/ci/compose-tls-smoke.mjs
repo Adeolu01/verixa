@@ -149,7 +149,7 @@ export async function runTlsSmoke(options, runner) {
  */
 function runCommand(argv, env = process.env) {
   return new Promise((resolve, reject) => {
-    const child = spawn(argv[0], argv.slice(1), { env, stdio: ["ignore", "pipe", "inherit"] });
+    const child = spawn(argv[0], argv.slice(1), { env, stdio: ["ignore", "pipe", "pipe"] });
     const chunks = [];
     let stderr = "";
     child.stdout.on("data", (chunk) => chunks.push(Buffer.from(chunk)));

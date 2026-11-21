@@ -28,6 +28,7 @@ describe("Docker layer cache configuration (Issue 384 / #496)", () => {
   it("accepts the repository's Dockerfile and publish workflow", () => {
     const plan = analyzeCacheConfiguration(DOCKERFILE, WORKFLOW);
     expect(plan.errors).toEqual([]);
+    expect(DOCKERFILE).toMatch(/^# syntax=docker\/dockerfile:1\.9$/m);
     expect(plan.manifestPaths).toContain("pnpm-lock.yaml");
     expect(plan.cacheFrom.some((value: string) => value.includes("type=gha"))).toBe(true);
     expect(
