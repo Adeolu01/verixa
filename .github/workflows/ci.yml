@@ -178,6 +178,13 @@ jobs:
       - name: Check formatting
         run: pnpm format:check
 
+      # Issue 389: Environment configuration matrix sync check.
+      # Verifies that docs/guides/deployment.md stays in exact sync with
+      # packages/config/schema.ts so new variables are never added without
+      # being classified by secret status and environment source.
+      - name: Verify environment configuration matrix sync
+        run: pnpm check:env-matrix
+
       - name: Typecheck
         run: pnpm typecheck
 
