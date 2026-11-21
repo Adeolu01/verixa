@@ -30,6 +30,7 @@ describe("Docker layer cache configuration (Issue 384 / #496)", () => {
     expect(plan.errors).toEqual([]);
     expect(DOCKERFILE).toMatch(/^# syntax=docker\/dockerfile:1\.20$/m);
     expect(plan.manifestPaths).toContain("pnpm-lock.yaml");
+    expect(plan.manifestPaths).toContain("packages/*/tsconfig.json");
     expect(plan.cacheFrom.some((value: string) => value.includes("type=gha"))).toBe(true);
     expect(
       plan.cacheTo.some(
@@ -91,6 +92,9 @@ describe("Docker layer cache configuration (Issue 384 / #496)", () => {
   it("fails when a warm build is not a fraction of the cold build", () => {
     expect(() =>
       assertBuildTimings({ coldSeconds: 100, warmSeconds: 70, sourceSeconds: 75 }),
+    ).not.toThrow();
+    expect(() =>
+      assertBuildTimings({ coldSeconds: 38, warmSeconds: 0, sourceSeconds: 0 }),
     ).not.toThrow();
     expect(() =>
       assertBuildTimings({ coldSeconds: 100, warmSeconds: 95, sourceSeconds: 70 }),

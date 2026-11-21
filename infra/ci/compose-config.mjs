@@ -120,6 +120,14 @@ function networkNames(service) {
   return [];
 }
 
+function publishedPorts(service) {
+  return (service?.ports ?? []).flatMap((port) => {
+    if (typeof port === "string") return [port.split(":").pop()];
+    if (isPlainObject(port) && port.published !== undefined) return [String(port.published)];
+    return [];
+  });
+}
+
 /**
  * Behavioral assertions on a resolved compose config. Each check answers an
  * acceptance criterion from Issues 385/386/387 rather than checking that a
@@ -177,7 +185,7 @@ export function productionTopologyErrors(config) {
   }
 
   const proxy = services.proxy;
-  const published = (proxy.ports ?? []).map((port) => String(port).split(":").pop());
+  const published = publishedPorts(proxy);
   if (!published.includes("80") || !published.includes("443")) {
     errors.push("proxy must publish both HTTP and HTTPS");
   }

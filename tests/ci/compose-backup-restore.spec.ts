@@ -33,6 +33,7 @@ describe("Production backup and restore (Issue 386 / #498)", () => {
   it("dumps Postgres and Redis from the running containers into separate files", async () => {
     const directory = tempDirectory();
     const calls: Array<{ argv: string[]; outputFile?: string }> = [];
+    let outputCount = 0;
     const plan = await performBackup(
       {
         composeFiles: ["docker-compose.yml", "docker-compose.prod.yml"],
@@ -43,7 +44,8 @@ describe("Production backup and restore (Issue 386 / #498)", () => {
         const call: { argv: string[]; outputFile?: string } = { argv };
         if (options.outputFile) {
           call.outputFile = options.outputFile;
-          writeFileSync(options.outputFile, `dump-${calls.length + 1}`);
+          outputCount += 1;
+          writeFileSync(options.outputFile, `dump-${outputCount}`);
         }
         calls.push(call);
         return resolved("");
@@ -52,12 +54,15 @@ describe("Production backup and restore (Issue 386 / #498)", () => {
 
     expect(readFileSync(plan.postgresFile, "utf8")).toBe("dump-1");
     expect(readFileSync(plan.redisFile, "utf8")).toBe("dump-2");
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
     expect(calls[0]!.argv.join(" ")).toContain("exec -T -e PGUSER -e PGPASSWORD postgres pg_dump");
     expect(calls[0]!.argv).toContain("--format=custom");
     expect(calls[0]!.argv).not.toContain("--file=/dev/stdout");
-    expect(calls[1]!.argv.join(" ")).toContain("redis redis-cli --rdb -");
+    expect(calls[1]!.argv.join(" ")).toContain("redis redis-cli --rdb /tmp/verixa-backup.rdb");
     expect(calls[1]!.argv).toContain("REDISCLI_AUTH");
+    expect(calls[1]!.outputFile).toBeUndefined();
+    expect(calls[2]!.argv.join(" ")).toContain("cp redis:/tmp/verixa-backup.rdb");
+    expect(calls[2]!.outputFile).toBe(plan.redisFile);
     expect(calls.every((call) => !call.argv.some((arg) => arg.includes("ci-secret")))).toBe(true);
   });
 

@@ -201,9 +201,12 @@ export function analyzeCacheConfiguration(dockerfileText, workflowText) {
 export function assertBuildTimings(timings) {
   const { coldSeconds, warmSeconds, sourceSeconds } = timings;
   for (const [name, value] of Object.entries(timings)) {
-    if (!Number.isFinite(value) || value <= 0) {
-      throw new Error(`${name} must be a positive number of seconds`);
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(`${name} must be a non-negative number of seconds`);
     }
+  }
+  if (coldSeconds <= 0) {
+    throw new Error("coldSeconds must be greater than zero");
   }
   const limit = coldSeconds * 0.75;
   const messages = [`cold ${coldSeconds}s, warm ${warmSeconds}s, source-only ${sourceSeconds}s`];

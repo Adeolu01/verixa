@@ -27,7 +27,7 @@ FROM base AS deps
 # the moment a new package is added (Issue 050). Copying `packages/` whole
 # used to invalidate this layer on every package source edit; now a
 # source-only commit reuses the install layer untouched.
-COPY --parents pnpm-workspace.yaml pnpm-lock.yaml package.json tests/package.json apps/*/package.json packages/*/package.json packages/*/prisma/schema.prisma ./
+COPY --parents pnpm-workspace.yaml pnpm-lock.yaml package.json tests/package.json apps/*/package.json packages/*/package.json packages/*/tsconfig.json packages/*/prisma/schema.prisma ./
 
 # The pnpm store is a cache, not build output: its contents are derived from
 # the lockfile and can be reused across builds and branches. A layer holding

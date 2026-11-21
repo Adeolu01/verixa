@@ -17,6 +17,7 @@ export function createBackupPlan(options) {
   const postgresFile = join(options.outputDirectory, `postgres-${label}.dump`);
   const redisFile = join(options.outputDirectory, `redis-${label}.rdb`);
   const compose = composeArguments(options);
+  const redisContainerPath = "/tmp/verixa-backup.rdb";
 
   return {
     postgresFile,
@@ -46,8 +47,22 @@ export function createBackupPlan(options) {
         outputFile: postgresFile,
       },
       {
-        name: "redis",
-        argv: [...compose, "exec", "-T", "-e", "REDISCLI_AUTH", "redis", "redis-cli", "--rdb", "-"],
+        name: "redis-dump",
+        argv: [
+          ...compose,
+          "exec",
+          "-T",
+          "-e",
+          "REDISCLI_AUTH",
+          "redis",
+          "redis-cli",
+          "--rdb",
+          redisContainerPath,
+        ],
+      },
+      {
+        name: "redis-copy",
+        argv: [...compose, "cp", `redis:${redisContainerPath}`],
         outputFile: redisFile,
       },
     ],

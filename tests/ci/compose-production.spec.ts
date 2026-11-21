@@ -51,6 +51,18 @@ describe("Production compose overlay (Issue 385 / #497)", () => {
     );
   });
 
+  it("accepts the object form of ports produced by docker compose config", () => {
+    const config = resolved();
+    config.services.proxy!.ports = [
+      { mode: "ingress", published: "80", target: 80, protocol: "tcp" },
+      { mode: "ingress", published: "443", target: 443, protocol: "tcp" },
+    ];
+    expect(productionTopologyErrors(config)).toEqual([]);
+
+    config.services.proxy!.ports = [{ target: 80, protocol: "tcp" }];
+    expect(productionTopologyErrors(config)).toContain("proxy must publish both HTTP and HTTPS");
+  });
+
   it("catches a lost port reset before it reaches the host", () => {
     const errors = productionTopologyErrors(
       resolved(BASE, OVERLAY.replace(/ports: !reset \[\]/g, "")),
