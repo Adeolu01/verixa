@@ -1,0 +1,58 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Policy-driven dependency updates for Verixa. Grouped per workspace on a weekly schedule with semver-aware strategies (see docs/guides/ci-cd.md, 'Dependency updates').",
+  "extends": ["config:base"],
+  "schedule": ["after 10pm every weekday", "every weekend"],
+  "timezone": "America/Los_Angeles",
+  "prConcurrentLimit": 3,
+  "semanticCommits": "enabled",
+  "commitMessageAction": "deps",
+  "packageRules": [
+    {
+      "description": "Group every workspace's non-major updates into one PR so a dependency change is never scattered across unrelated diffs.",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["dependencies", "devDependencies", "peerDependencies"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "Dependencies (grouped per workspace)",
+      "groupSlug": "all-minor-patch",
+      "commitMessagePrefix": "chore(deps)",
+      "prBodyNotes": [
+        "Scoped, policy-driven updates come from renovate.json. Patch and minor bumps are grouped per workspace with a Conventional Commit title that passes commitlint (docs/guides/conventional-commits.md). Major bumps are opened separately below so a review of a breaking change is not hidden inside a patch/minor PR."
+      ]
+    },
+    {
+      "description": "Major-version bumps are reviewed separately from patch/minor so a breaking change is one PR and the supporting lockfile sync is not mixed with it.",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["major", "minor", "patch"],
+      "matchCurrentVersion": "!/^0/",
+      "exclude": [
+        "fastify",
+        "prisma",
+        "@prisma/client",
+        "@testcontainers/postgresql",
+        "testcontainers",
+        "vitest",
+        "tsx",
+        "eslint",
+        "prettier",
+        "typescript",
+        "husky",
+        "lint-staged",
+        "@commitlint/*"
+      ],
+      "groupName": "Major bumps (separate PR)",
+      "groupSlug": "major-bumps",
+      "commitMessagePrefix": "chore(deps)",
+      "schedule": ["every weekend"],
+      "prBodyNotes": [
+        "Major-version bumps are opened separately from patch/minor so review visibility is not lost. The lockfile stays in the same PR as the manifest change; the CI lockfile gate (lockfile-check.yml) verifies pnpm-lock.yaml is committed and in sync before the upgrade merges."
+      ]
+    },
+    {
+      "description": "Workspace-aware updates stay scoped to the package that declares them, and never leak into an unrelated workspace.",
+      "matchManagers": ["npm"],
+      "requiredStatusChecks": "skip",
+      "enabled": false
+    }
+  ]
+}

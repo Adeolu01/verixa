@@ -1,0 +1,51 @@
+name: preview
+
+# Ephemeral per-pull-request preview environment secrets and configuration.
+# This is the single dedicated GitHub Environment for preview deploys
+# (issue 377, Phase 19 — CI/CD & DevOps Automation).
+#
+# ## Why this exists
+#
+# A pull request from a fork has no access to repository secrets by default,
+# but it *does* have access to any secret placed on the default
+# (unscoped) environment, and it has access to the `production` environment
+# if a maintainer adds a secret there. A workflow that reads failures from
+# `production` or `secrets` can therefore exfiltrate a production
+# credentials to a contributor's fork, which is precisely the credential
+# leak this environment prevents.
+#
+# Everything in this file lives outside `production`. A preview environment
+# needs its own test-tier database credentials, non-production API keys, and
+# an isolated Redis namespace — none of which should ever be a production
+# secret. The values below are placeholders: no preview deploy will work
+# without them set in this environment, but no fork PR can ever read them,
+# and no production credential lives in the file you are reading.
+#
+# ## How a maintainer adds a preview secret
+#
+# 1. Go to *Settings → Environments → preview → Add secret*.
+# 2. Name it exactly as `preview-deploy.yml` expects (`PREVIEW_DATABASE_URL`,
+#    `PREVIEW_REDIS_URL`, `PREVIEW_SESSION_ACCESS_TOKEN_SECRET`).
+# 3. Paste the generated value (or a reference to a vault/secret-manager
+#    secret that GitHub injects).
+# 4. Do not copy anything from `production.*` or `secrets.*` into this file.
+#    Preview credentials are their own tier of least privilege.
+
+# The database URL a preview deploy uses, pointing at the test-tier
+# PostgreSQL instance. It is distinct from `DATABASE_URL` because a preview
+# deployment must never connect to a production database, and it must not
+# share a namespace with a development database so that a stray migration or
+# a forgotten connection does not corrupt local state.
+PREVIEW_DATABASE_URL: "postgres://verixa_preview:***@preview-postgres:5432/verixa_preview"
+
+# The Redis connection string for the preview Redis namespace.
+# Preview sessions and rate-limit counters live in a separate Redis DB
+# (dbnum 1) so a failed preview teardown cannot touch the production
+# eviction set or a customer's session store.
+PREVIEW_REDIS_URL: "redis://:preview-redis-password@preview-redis:6379/1"
+
+# A per-preview signing secret, generated fresh for each PR and rotated on
+# teardown. Preview tokens must never be verifiable against a production
+# access-token secret, so the preview deploy signs its own session tokens
+# with a value that exists only in this environment.
+PREVIEW_SESSION_ACCESS_TOKEN_SECRET: "<generate with openssl rand -base64 48>"

@@ -1,0 +1,80 @@
+name: Lockfile integrity
+
+# Prevents "works on my machine" drift where a contributor's local lockfile
+# update never made it into the PR (issue 374). It is a hard gate, not an
+# advisory comment, because a PR that passes locally but diverges in CI is the
+# failure mode this exists to catch.
+#
+# ## Why this is its own workflow rather than a step in `ci.yml`
+#
+# `ci.yml` answers "does the code work". A lockfile check answers "is the graph
+# that shipped the one this repository actually reviewed, or one that a fresh
+# `pnpm install` would resolve today?". They fail for different reasons and on
+# different schedules. Keeping them separate means a lockfile drift never lands
+# on an unrelated push to `main` as a mysterious red X.
+#
+# ## Why the gate is a script and not `--frozen-lockfile`
+#
+# `pnpm install --frozen-lockfile` stops at the first mismatch and prints a
+# pnpm-internal resolution message. This script reads the lockfile itself and
+# reports every mismatch across the workspace in one pass, naming the manifest
+# file and the dependency. `--frozen-lockfile` also says nothing about whether
+# the lockfile is *committed*, which is the failure mode with the widest
+# blast radius: everything passes locally, and CI installs a graph that
+# nobody reviewed, on every build.
+#
+# ## Scope
+#
+# The lockfile is the source of truth for reproducible builds. `package.json`
+# ranges (`^`, `~`, `*`, `latest`) are unconstrained: resolving the same
+# manifest twice can pick different versions. Only the committed lockfile
+# records what was actually tested and what will ship.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  # Nightly, so a lockfile that drifts after a merge is caught without a
+  # pull request to hang it on. Scheduled workflows for public repositories
+  # share a congested queue at round times, so this is off the hour.
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+# One run per ref, and a new push supersedes the previous run: a lockfile
+# should never be inspected twice for the same change.
+concurrency:
+  group: lockfile-check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lockfile:
+    name: Verify pnpm-lock.yaml is committed and in sync
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: the gate diffs against the base branch, and a shallow
+      # clone has no base branch to diff against.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Runs before install for the same reason as the malware check: the gate
+      # reads manifests and a lockfile, so it takes no dependencies, no
+      # package-manager setup and no build. It is also the first thing to
+      # fail when the lockfile is absent entirely, which would otherwise
+      # surface as setup-node's `cache: pnpm` complaining that it cannot find
+      # one — true, but three steps downstream of the actual mistake.
+      - name: Check lockfile integrity
+        run: node infra/ci/check-lockfile-integrity.mjs
+
+      # The workspace's `package.json` and every `packages/*/package.json`
+      # declare ranges. Ranges are what the lockfile resolves; a range that
+      # the lockfile cannot pin is a graph that changes on every rebuild.
+      # The helpers here are the same ones the check verifies, so a change to
+      # the gate is a change to the gate for every package.
+      - name: Validate dependency ranges in manifests
+        run: |
+          node infra/ci/check-manifest-ranges.mjs
