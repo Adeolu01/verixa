@@ -1,5 +1,4 @@
 import { Result } from "@verixa/shared-kernel";
-import { defineContractTests } from "@verixa/testing-kit/contract-test";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -11,6 +10,8 @@ import {
 } from "../../application/ports/geo-ip-resolver.js";
 import { HttpGeoIpResolver } from "../adapters/http-geo-ip-resolver.js";
 import { StaticGeoIpResolver } from "../adapters/static-geo-ip-resolver.js";
+
+import { defineContractTests } from "./contract-test.js";
 
 function createMockGeoFetch(mode: "ok" | "timeout" | "malformed" | "server_error"): typeof fetch {
   return (input, init) => {
