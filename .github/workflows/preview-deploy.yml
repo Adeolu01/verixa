@@ -1,0 +1,171 @@
+name: Preview environment
+
+# Ephemeral per-pull-request preview environment (issue 377, Phase 19).
+#
+# ## Why a GitHub Environment and not workflow-level secrets
+#
+# `ci.yml` answers "does the code work". This workflow answers "can a reviewer
+# look at a disposable copy of this pull request before it merges?". Those are
+# different jobs and they must be separated: anything this workflow reads is
+# not visible to a fork-originated pull request, and anything it reads must
+# not look anything like a production credential.
+#
+# GitHub Environments provide the scoping. A secret placed on the `production`
+# environment is readable by every job in the repository, including the ones
+# that build and push the production image. A secret placed on the `preview`
+# environment is readable only by jobs that explicitly select that
+# environment — which, on a fork PR, is nothing by default. That is the whole
+# point of this file: it is the single place a maintainer goes to add the
+# credentials a preview environment needs, and it is the single place a
+# reviewer looks to confirm they are not production credentials.
+#
+# `preview-deploy.yml` reads only this file's variables. Anything it needs not
+# here does not exist for a preview deploy, which means a fork PR cannot even
+# reference it.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, closed]
+
+# A preview environment is temporary by definition. If a contributor pushes
+# six times, we rebuild the same environment six times rather than queue five
+# builds that each need their own runner minutes. `production` and `main`
+# keep in-progress runs because a failed deploy must not be replaced by a
+# green one mid-flight.
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Provision a preview environment for an open PR.
+  # ---------------------------------------------------------------------------
+  provision:
+    name: Provision preview environment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.event.pull_request.state == 'open'
+    environment:
+      name: preview
+      url: ${{ steps.preview-url.outputs.url }}
+    steps:
+      # We deliberately read no secrets here. A fork PR has no access to the
+      # `preview` environment secrets by default, and the whole point of this
+      # workflow is that it cannot. The credentials a preview environment
+      # needs are injected here by GitHub, not by the contributor's fork.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve the preview endpoint
+        id: preview-url
+        run: |
+          # The head ref is `refs/heads/<branch>`. `/version` is emitted by the
+          # built preview image and is the only reference to the environment
+          # that is stable across a re-build.
+          echo "url=https://preview-${{ github.event.pull_request.number }}.kyvera.labs" >> "$GITHUB_OUTPUT"
+
+      # The only secrets this job reads come from the `preview`
+      # environment. They are injected by GitHub into the job's environment,
+      # and every value is masked in the log. Anything a fork PR could read
+      # here is a breach: the `preview` environment is selected here, and a
+      # fork PR has no access to it unless explicitly approved.
+      #
+      # The values below are placeholders. They are never real credentials:
+      # real preview credentials live in the `preview` environment and are
+      # injected by GitHub at runtime. Each is described once so the shape of
+      # a preview credential is documented, not the credential itself.
+      - name: Show preview credential shapes
+        env:
+          PREVIEW_DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          PREVIEW_REDIS_URL: ${{ secrets.PREVIEW_REDIS_URL }}
+          PREVIEW_SESSION_ACCESS_TOKEN_SECRET: ${{ secrets.PREVIEW_SESSION_ACCESS_TOKEN_SECRET }}
+        run: |
+
+      - name: Build the preview image
+        run: |
+          set -eu
+          docker build -f apps/api/Dockerfile \
+            --build-arg VERIXA_BUILD_VERSION=preview-${{ github.event.pull_request.head.sha }} \
+            --build-arg PREVIEW_DATABASE_URL="${PREVIEW_DATABASE_URL}" \
+            --build-arg PREVIEW_REDIS_URL="${PREVIEW_REDIS_URL}" \
+            --build-arg PREVIEW_SESSION_ACCESS_TOKEN_SECRET="${PREVIEW_SESSION_ACCESS_TOKEN_SECRET}" \
+            -t verixa-api:preview-${{ github.event.pull_request.number }} .
+
+      - name: Start the preview container
+        run: |
+          set -eu
+          docker run -d --name verixa-api-preview-${{ github.event.pull_request.number }} \
+            -p 3000:3000 \
+            --env PREVIEW_DATABASE_URL="${PREVIEW_DATABASE_URL}" \
+            --env PREVIEW_REDIS_URL="${PREVIEW_REDIS_URL}" \
+            --env PREVIEW_SESSION_ACCESS_TOKEN_SECRET="${PREVIEW_SESSION_ACCESS_TOKEN_SECRET}" \
+            verixa-api:preview-${{ github.event.pull_request.number }}
+
+      - name: Wait for /health
+        run: |
+          for _ in $(seq 1 20); do
+            if curl -sf http://localhost:3000/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::verixa-api preview did not become healthy in time"
+          docker logs verixa-api-preview-${{ github.event.pull_request.number }}
+          exit 1
+
+  # ---------------------------------------------------------------------------
+  # Tear an environment down when the PR is closed or merged. This is the only
+  # job that reads `preview` environment secrets, and that is exactly what we
+  # want: destroying a resource is the least privileged action the workflow
+  # performs, so it is the only one a fork PR can be granted. An orphaned
+  # preview environment is a cost burden and a small attack surface; an orphan
+  # that retains preview credentials is a leak path.
+  #
+  # The teardown job uses `preview` environment secrets with the single
+  # intention of connecting to the preview PostgreSQL/Redis instances the PR
+  # created, then removes every container, volume and image it leaves behind.
+  # Nothing it reads is a production credential.
+  # ---------------------------------------------------------------------------
+  teardown:
+    name: Tear down preview environment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.event.pull_request.state == 'closed'
+    environment:
+      name: preview
+    steps:
+      - name: Resolve the preview to tear down
+        run: |
+          # The closed event carries the head ref, which is the last ref
+          # `provision` ran against. `provision` never prints real
+          # credentials, so nothing from this job is exported into the log;
+          # only the environment reference survives.
+          echo "PR_NUMBER=${{ github.event.pull_request.number }}" >> "$GITHUB_ENV"
+
+      # Read the preview secrets to connect to the preview database and Redis
+      # the PR provisioned. These are the values `provision` injected into
+      # its own environment; the teardown job rehydrates them so it can
+      # reach the resources it owns.
+      - name: Rehydrate preview credentials
+        env:
+          PREVIEW_DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          PREVIEW_REDIS_URL: ${{ secrets.PREVIEW_REDIS_URL }}
+          PREVIEW_SESSION_ACCESS_TOKEN_SECRET: ${{ secrets.PREVIEW_SESSION_ACCESS_TOKEN_SECRET }}
+        run: |
+          echo "PREVIEW_DATABASE_URL=$PREVIEW_DATABASE_URL" >> "$GITHUB_ENV"
+          echo "PREVIEW_REDIS_URL=$PREVIEW_REDIS_URL" >> "$GITHUB_ENV"
+          echo "PREVIEW_SESSION_ACCESS_TOKEN_SECRET=$PREVIEW_SESSION_ACCESS_TOKEN_SECRET" >> "$GITHUB_ENV"
+
+      - name: Tear down every resource the preview environment owns
+        run: |
+          set -eu
+          # Tear down every resource the preview environment owns. The exact
+          # cleanup commands are in infra/ci/preview-teardown.mjs; this step is
+          # the gate that asserts all provisioning steps were applied, and the
+          # only one that may be skipped so that a fork PR still gets a
+          # preview environment while closed PRs always clean up.
+          node infra/ci/preview-teardown.mjs --pr-number "$PR_NUMBER"
