@@ -39,6 +39,7 @@
     "@verixa/config": "workspace:*",
     "@verixa/credentials": "workspace:*",
     "@verixa/database": "workspace:*",
+    "@verixa/governance": "workspace:*",
     "@verixa/identity": "workspace:*",
     "@verixa/mfa": "workspace:*",
     "@verixa/rate-limiting": "workspace:*",
