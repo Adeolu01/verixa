@@ -132,6 +132,9 @@ importers:
       '@verixa/stellar-anchor':
         specifier: workspace:*
         version: file:packages/stellar-anchor(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0)
+      '@verixa/verification':
+        specifier: workspace:*
+        version: link:../../packages/verification
       fastify:
         specifier: ^5.12.1
         version: 5.12.5
