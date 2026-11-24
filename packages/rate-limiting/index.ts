@@ -36,3 +36,29 @@ export {
   HttpGeoIpResolver,
   type HttpGeoIpResolverConfig,
 } from "./infrastructure/adapters/http-geo-ip-resolver.js";
+
+export {
+  IpRateLimitStrategy,
+  InMemoryRateLimiter,
+  extractClientIp,
+  type HttpRequestContext,
+  type IpRateLimitStrategyOptions,
+  type IpRateLimitContext,
+  type IpRateLimitResult,
+} from "./application/strategies/ip-strategy.js";
+
+export {
+  AccountRateLimitStrategy,
+  normalizeAccountIdentifier,
+  type AccountRateLimitStrategyOptions,
+  type AccountRateLimitContext,
+  type AccountRateLimitResult,
+} from "./application/strategies/account-strategy.js";
+
+export {
+  CompositeRateLimitStrategy,
+  type CompositeRateLimitStrategyOptions,
+  type CompositeRateLimitContext,
+  type CompositeRateLimitResult,
+  type RateLimitDenialReason,
+} from "./application/strategies/composite-strategy.js";
