@@ -46,6 +46,7 @@
     "@verixa/sessions": "workspace:*",
     "@verixa/shared-kernel": "workspace:*",
     "@verixa/stellar-anchor": "workspace:*",
+    "@verixa/verification": "workspace:*",
     "fastify": "^5.12.1",
     "graphql": "^17.0.2",
     "ioredis": "^5.4.1",

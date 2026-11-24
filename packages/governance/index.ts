@@ -50,3 +50,34 @@ export type {
   ComplianceCaseRouteDependencies,
   PermissionCheck,
 } from "./interface/http/compliance-case-routes.js";
+
+export {
+  PERMITTED_RETENTION_ACTIONS,
+  RETENTION_ACTIONS,
+  RETENTION_RESOURCE_TYPES,
+  RetentionRule,
+  isActionPermitted,
+} from "./domain/retention-rule.js";
+export type {
+  RetentionAction,
+  RetentionResourceType,
+  RetentionRuleId,
+  RetentionRuleProps,
+} from "./domain/retention-rule.js";
+export type {
+  ApplyOutcome,
+  ExpiredResource,
+  RetentionTarget,
+} from "./application/ports/retention-target.js";
+export type {
+  RetentionActionLog,
+  RetentionActionRecord,
+  RetentionOutcome,
+  RetentionRuleSource,
+} from "./application/ports/retention-ports.js";
+export { RetentionEnforcementJob } from "./application/retention-enforcement-job.js";
+export type {
+  RetentionEnforcementJobOptions,
+  RetentionRunSummary,
+} from "./application/retention-enforcement-job.js";
+export { InMemoryRetentionActionLog } from "./infrastructure/in-memory-retention-action-log.js";

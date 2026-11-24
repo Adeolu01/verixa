@@ -108,3 +108,48 @@ Request shape is validated with JSON Schema (`schemas/compliance-case-schemas.ts
 
 - Cases are stored by `InMemoryComplianceCaseRepository`: they are lost on restart and not shared between API instances. A database-backed adapter implements the same `ComplianceCaseRepository` port and is the intended follow-up; the port documents the organization scoping and version check it must keep.
 - The caller is identified by the `x-user-id` header, the same interim arrangement as the RBAC admin routes, until the principal plugin lands. These routes must only be reachable behind the session layer.
+
+## Retention enforcement
+
+A `RetentionRule` declares how long one category of data may be kept and what happens afterwards. `RetentionEnforcementJob` (`packages/governance/application/retention-enforcement-job.ts`) turns those declarations into action. It is meant to be run on a schedule by calling `run(now)`; it holds no timer of its own.
+
+### Governance does not reach into other contexts
+
+The job never touches another context's tables. Each context implements `RetentionTarget` (`application/ports/retention-target.ts`) for its own data:
+
+| Resource type  | Implemented by                                           | Actions               |
+| -------------- | -------------------------------------------------------- | --------------------- |
+| `sessions`     | `SessionRetentionTarget` in `packages/sessions`          | `delete`, `anonymize` |
+| `verification` | `VerificationRetentionTarget` in `packages/verification` | `delete`, `archive`   |
+| `audit_export` | none yet                                                 | `archive` only        |
+
+The port is a contract written in prose (scoping, honest cutoff, no repeats, bounded batches, idempotent `apply`, honest about unsupported actions). A second implementation is interchangeable only if it keeps all of it. The contexts implement the port **structurally**, with no import of governance, so neither side depends on the other; `apps/api/src/composition/retention-targets.spec.ts` assigns them to the port and stops compiling if they drift.
+
+Each target sits on a narrow store port of its own (`SessionRetentionStore`, `VerificationRetentionStore`) so it does not depend on how that context persists data.
+
+### Idempotent by design
+
+The job can be re-run at any time, including after a crash halfway through a batch. This is the same "at-least-once needs idempotent handlers" reasoning as any queue consumer: assume every step can happen twice and make the second time harmless.
+
+1. `apply` is idempotent. Deleting something already deleted, or anonymizing something already anonymized, returns `already_applied` and changes nothing. This covers the unavoidable window between "the record changed" and "the job wrote it down".
+2. The job checks its action log first and skips work already completed.
+3. `findExpired` never re-offers a record already handled with the same action, so anonymize and archive (which leave the row in place) do not rediscover it every run.
+
+**Rejected alternative:** a run lock plus a "progress marker". It makes crash recovery depend on cleaning up the lock and marker. Idempotent actions need no cleanup.
+
+A failed action is logged as `failed` and the job carries on with the rest; the next run retries it. If a whole batch makes no progress the rule's run stops, so a persistent failure cannot spin.
+
+### Every action is recorded
+
+`RetentionActionLog` is an append-only record with the rule id, resource id, action and outcome (`applied`, `already_applied`, `refused`, `failed`) of everything the job did, plus a reason for refusals and failures.
+
+### Audit records are never deleted
+
+`PERMITTED_RETENTION_ACTIONS` is a table of which actions each resource type may ever be given, and `audit_export` permits `archive` only. It is checked twice: when a rule is created, and again by the job before any target is touched, because a rule rebuilt from storage never passes through creation. See `docs/security/threat-model-governance.md` for why.
+
+### Known limitations
+
+- The stores behind the two targets are in-memory. Database-backed stores are follow-up work behind the same ports; they must keep the contracts documented on the store interfaces (organization scoping, never returning live records, excluding already-handled records).
+- Session retention scopes by organization through an `OrganizationUserLookup`, because sessions are keyed by user. The composition root must supply it from the identity context.
+- The job is not yet scheduled or composed in the API, and there is no audit-export target yet.
+- `RetentionRule` here is the minimum the job needs. Versioning and overlapping-rule rejection belong to the retention-rule model issue (#369).
