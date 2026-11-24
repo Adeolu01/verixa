@@ -30,6 +30,15 @@ import {
 } from "@verixa/credentials";
 import { PrismaClient } from "@verixa/database";
 import {
+  GetComplianceCase,
+  InMemoryComplianceCaseRepository,
+  ListComplianceCases,
+  OpenComplianceCase,
+  RecordComplianceApproval,
+  TransitionComplianceCase,
+  type PermissionCheck,
+} from "@verixa/governance";
+import {
   CreateOrganization,
   GetOrganization,
   GetOrganizationUsers,
@@ -285,6 +294,15 @@ export interface SessionUseCases {
   readonly logout: Logout;
 }
 
+export interface GovernanceUseCases {
+  readonly openCase: OpenComplianceCase;
+  readonly getCase: GetComplianceCase;
+  readonly listCases: ListComplianceCases;
+  readonly transitionCase: TransitionComplianceCase;
+  readonly recordApproval: RecordComplianceApproval;
+  readonly permissions: PermissionCheck;
+}
+
 export interface Container {
   readonly prisma: PrismaClient;
   readonly eventPublisher: DomainEventPublisher;
@@ -294,6 +312,8 @@ export interface Container {
   readonly authorization: AuthorizationRepository;
   readonly sessions?: SessionUseCases;
   readonly rateLimiter?: RateLimiter;
+  /** Compliance case management (Issue 314). Absent in partial test containers. */
+  readonly governance?: GovernanceUseCases;
   /**
    * Drains any queued audit writes, then releases the database connection.
    * Call on shutdown.
@@ -322,6 +342,33 @@ export interface ContainerOverrides {
   readonly queryAuditEvents?: QueryAuditEvents | undefined;
   readonly exportAuditEvents?: ExportAuditEvents | undefined;
   readonly rateLimiter?: RateLimiter | undefined;
+}
+
+/**
+ * Wires compliance case management.
+ *
+ * Cases live in process memory for now (see `InMemoryComplianceCaseRepository`);
+ * swapping in a database adapter changes only the repository constructed here.
+ * Approver eligibility is answered by the RBAC store: signing off as role `R`
+ * requires the `compliance-cases:approve:R` permission in the organization.
+ */
+export function buildGovernance(authorization: AuthorizationRepository): GovernanceUseCases {
+  const repository = new InMemoryComplianceCaseRepository();
+  const publisher = new InMemoryEventPublisher();
+  return {
+    openCase: new OpenComplianceCase(repository, publisher),
+    getCase: new GetComplianceCase(repository),
+    listCases: new ListComplianceCases(repository),
+    transitionCase: new TransitionComplianceCase(repository, publisher),
+    recordApproval: new RecordComplianceApproval(repository, publisher, {
+      canApproveAs: (userId, organizationId, role) =>
+        authorization.hasPermission(userId, organizationId, `compliance-cases:approve:${role}`),
+    }),
+    permissions: {
+      hasPermission: (userId, organizationId, permission) =>
+        authorization.hasPermission(userId, organizationId, permission),
+    },
+  };
 }
 
 /**
@@ -555,6 +602,7 @@ export function buildContainer(
           : undefined),
     },
     authorization,
+    governance: buildGovernance(authorization),
     sessions: {
       issueSession: new IssueSession(
         new PrismaSessionRepository(prisma),
