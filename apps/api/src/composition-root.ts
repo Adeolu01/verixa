@@ -75,6 +75,7 @@ import {
   InMemoryEventPublisher,
   NoopRateLimiter,
   type DomainEventPublisher,
+  type RateLimiter,
 } from "@verixa/shared-kernel";
 import {
   LocalTransactionSigner,
@@ -83,6 +84,7 @@ import {
   type TransactionSigner,
 } from "@verixa/stellar-anchor";
 
+import { createCredentialRateLimiter } from "./composition/rate-limiting.js";
 import { registerAuditSubscribers } from "./composition/register-audit-subscribers.js";
 
 /**
@@ -291,6 +293,7 @@ export interface Container {
   readonly audit: AuditUseCases;
   readonly authorization: AuthorizationRepository;
   readonly sessions?: SessionUseCases;
+  readonly rateLimiter?: RateLimiter;
   /**
    * Drains any queued audit writes, then releases the database connection.
    * Call on shutdown.
@@ -318,6 +321,7 @@ export interface ContainerOverrides {
   readonly auditEventReader?: AuditEventReader | undefined;
   readonly queryAuditEvents?: QueryAuditEvents | undefined;
   readonly exportAuditEvents?: ExportAuditEvents | undefined;
+  readonly rateLimiter?: RateLimiter | undefined;
 }
 
 /**
@@ -367,7 +371,9 @@ export function buildContainer(
   // arrives — only a new adapter and a new wire in composition root.
   const credentialNotifier = new NullCredentialNotifier();
   const sessionRevoker = new NoSessionsRevoker();
-  const rateLimiter = new NoopRateLimiter();
+  const rateLimiter: RateLimiter =
+    overrides.rateLimiter ??
+    (process.env["NODE_ENV"] === "test" ? new NoopRateLimiter() : createCredentialRateLimiter());
   // Counts failures the per-credential lockout cannot see (unknown addresses,
   // password spraying). In-memory and per process until Phase 15's durable store.
   const bruteForceAttempts = new BruteForcePolicy(new InMemoryBruteForceAttemptStore());
@@ -470,6 +476,7 @@ export function buildContainer(
   return {
     prisma,
     eventPublisher,
+    rateLimiter,
     identity: {
       registerUser: new RegisterUser(users),
       updateUserProfile: new UpdateUserProfile(users),
@@ -573,6 +580,7 @@ export function buildContainer(
         ),
         new InMemoryRevocationList(),
         SessionExpiryPolicy.default(),
+        rateLimiter,
       ),
       logout: new Logout(new PrismaSessionRepository(prisma), new InMemoryRevocationList()),
     },

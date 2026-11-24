@@ -16,6 +16,8 @@ export {
   OTEL_EXPORTER_PROTOCOLS,
   parseOtlpHeaders,
   resolveOtelSamplingRate,
+  rateLimitPolicySchema,
+  rateLimitAllowlistSchema,
 } from "./schema.js";
 export type { OtelExporterProtocol } from "./schema.js";
 export { loadSigningKeys, SIGNING_KEY_ALGORITHMS, SIGNING_KEYS_ENV_VAR } from "./signing-keys.js";
